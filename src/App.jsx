@@ -11,12 +11,8 @@ export default function App() {
   };
 
   const fetchCurrentVideo = async () => {
-    const url = await invoke("get_current_youtube_url");
-    if (url) {
-      console.log("Current url", url);
-      const lastPosition = await invoke("get_watch_position", { url });
-      console.log("last position", lastPosition);
-    }
+    const browser = await invoke("get_used_browser");
+    console.log(browser);
   };
 
   useEffect(() => {
@@ -32,21 +28,6 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [isRunning, seconds]);
-
-  useEffect(() => {
-    const updatePosition = async () => {
-      try {
-        const position = await invoke("update_watch_position");
-        console.log("Position updated:", position);
-      } catch (error) {
-        console.error("Error updating position:", error);
-      }
-    };
-
-    const intervalId = setInterval(updatePosition, 5000);
-
-    return () => clearInterval(intervalId);
-  }, []);
 
   return (
     <div className="bg-neutral-800 text-white flex flex-col items-center justify-center gap-2 h-screen">
@@ -81,6 +62,7 @@ export default function App() {
         </button>
       </div>
       {isRunning && <p>Time remaining: {seconds} second(s)</p>}
+      <button onClick={fetchCurrentVideo}>detect</button>
     </div>
   );
 }
