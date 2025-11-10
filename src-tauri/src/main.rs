@@ -1,174 +1,85 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs;
-use std::process::Command;
-use std::sync::Mutex;
-use tauri::Builder;
+mod commands;
+use commands::*;
+use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use tauri::{Builder, Emitter, Manager, State};
+use tungstenite::accept;
 
-static USED_BROWSER: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
-
-#[tauri::command]
-fn sleep_mac() -> Result<String, String> {
-    let status = Command::new("osascript")
-        .arg("-e")
-        .arg("tell application \"System Events\" to sleep")
-        .status()
-        .map_err(|e| format!("Failed to run command: {}", e))?;
-
-    if status.success() {
-        Ok("Mac is going to sleep!".into())
-    } else {
-        Err(format!("Command failed with status: {}", status))
-    }
+#[derive(Clone)]
+pub struct VideoInfo {
+    pub data: Arc<Mutex<Option<String>>>,
 }
 
 #[tauri::command]
-fn get_used_browser() -> Option<String> {
-    let output = Command::new("osascript")
-        .arg("-e")
-        .arg(
-            r#"tell application "System Events"
-                set browserApps to {"Google Chrome", "Safari", "Mozilla Firefox", "Microsoft Edge", "Opera", "Brave Browser", "Vivaldi", "Internet Explorer", "Tor Browser", "Chromium"}
-                set runningBrowsers to {}
-                repeat with b in browserApps
-                    if (name of processes) contains b then
-                        set end of runningBrowsers to b
-                    end if
-                end repeat
-                set outputText to ""
-                repeat with r in runningBrowsers
-                    set outputText to outputText & r & linefeed
-                end repeat
-                return outputText
-            end tell"#,
-        )
-        .output()
-        .ok()?; // Return None if command fails
-
-    let browser = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-    if browser.is_empty() {
-        None
-    } else {
-        let mut used_browser = USED_BROWSER.lock().unwrap();
-        *used_browser = Some(browser.clone());
-        Some(browser)
-    }
-}
-
-#[tauri::command]
-fn get_browser_tabs(browser: String) -> Result<Vec<String>, String> {
-    let script = format!(
-        "tell application \"{browser}\"
-            set output to \"\"
-            repeat with w in windows
-                repeat with t in tabs of w
-                    set output to output & (URL of t) & linefeed
-                end repeat
-            end repeat
-        end tell
-        return output"
-    );
-
-    let output = Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-        .map_err(|e| format!("Failed to run osascript: {e}"))?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-    }
-
-    let result = String::from_utf8_lossy(&output.stdout);
-    let urls: Vec<String> =
-        result.lines().filter(|line| !line.trim().is_empty()).map(|s| s.to_string()).collect();
-
-    Ok(urls)
-}
-
-#[tauri::command]
-fn get_current_youtube_url() -> Option<String> {
-    // Try Safari first
-    if let Ok(safari_output) = Command::new("osascript")
-        .arg("-e")
-        .arg("tell application \"Safari\" to return URL of front document")
-        .output()
-    {
-        let url = String::from_utf8_lossy(&safari_output.stdout).trim().to_string();
-        if url.contains("youtube.com/watch") || url.contains("youtu.be") {
-            return Some(url);
-        }
-    }
-
-    // If Safari didn't work or wasn't YouTube, try Chrome
-    if let Ok(chrome_output) = Command::new("osascript")
-        .arg("-e")
-        .arg("tell application \"Google Chrome\" to return URL of active tab of front window")
-        .output()
-    {
-        let chrome_url = String::from_utf8_lossy(&chrome_output.stdout).trim().to_string();
-        if chrome_url.contains("youtube.com/watch") || chrome_url.contains("youtu.be") {
-            return Some(chrome_url);
-        }
-    }
-
-    None
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct WatchData {
-    map: HashMap<String, f64>, // URL -> last time in seconds
-}
-
-impl WatchData {
-    fn load() -> Self {
-        if let Ok(data) = fs::read_to_string("watch_data.json") {
-            serde_json::from_str(&data).unwrap_or(Self { map: HashMap::new() })
-        } else {
-            Self { map: HashMap::new() }
-        }
-    }
-
-    fn save(&self) {
-        let _ = fs::write("watch_data.json", serde_json::to_string_pretty(&self).unwrap());
-    }
-
-    fn update_position(&mut self, url: String, position: f64) {
-        self.map.insert(url, position);
-        self.save();
-    }
-
-    fn get_position(&self, url: &str) -> Option<f64> {
-        self.map.get(url).copied()
-    }
-}
-
-#[tauri::command]
-fn get_watch_position(url: String) -> Option<f64> {
-    let data = WatchData::load();
-    data.get_position(&url)
-}
-
-#[tauri::command]
-fn update_watch_position(url: String, position: f64) {
-    let mut data = WatchData::load();
-    data.update_position(url, position);
+fn get_latest_video(info: State<VideoInfo>) -> Option<String> {
+    info.data.lock().unwrap().clone()
 }
 
 fn main() {
+    // Shared state
+    let video_info = VideoInfo { data: Arc::new(Mutex::new(None)) };
+
+    // Clone for WebSocket thread
+    let ws_info = video_info.clone();
+
+    // Start WebSocket server in background thread
+    thread::spawn(move || {
+        let server = TcpListener::bind("127.0.0.1:4000").unwrap();
+        println!("WebSocket server running on ws://127.0.0.1:4000");
+
+        for stream in server.incoming() {
+            let stream = stream.unwrap();
+            let ws_info = ws_info.clone();
+            thread::spawn(move || {
+                let mut websocket = accept(stream).unwrap();
+                loop {
+                    let msg = websocket.read_message().unwrap();
+                    if msg.is_text() {
+                        let msg_text = msg.to_text().unwrap().to_string();
+
+                        // Update shared state
+                        {
+                            let mut state = ws_info.data.lock().unwrap();
+                            *state = Some(msg_text.clone());
+                        }
+
+                        // Debug
+                        println!("Video info updated: {}", msg_text);
+                    }
+                }
+            });
+        }
+    });
+
     Builder::default()
+        .manage(video_info.clone()) // register state
         .invoke_handler(tauri::generate_handler![
             sleep_mac,
-            get_current_youtube_url,
-            get_watch_position,
-            update_watch_position,
             get_used_browser,
+            get_latest_video,
             get_browser_tabs
         ])
+        .setup(move |app| {
+            // Clone the app handle for use in the thread
+            let app_handle = app.handle().clone();
+            // Use the video_info that was moved into this closure
+            let info_clone = video_info.clone();
+
+            // Emit live updates to frontend every 500ms
+            thread::spawn(move || loop {
+                let latest = info_clone.data.lock().unwrap().clone();
+                if let Some(ref msg) = latest {
+                    // Use Emitter trait for emit
+                    app_handle.emit("video-update", msg).ok();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            });
+
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

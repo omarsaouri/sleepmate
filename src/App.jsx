@@ -1,10 +1,24 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 export default function App() {
   const [seconds, setSeconds] = useState('0');
   const [isRunning, setIsRunning] = useState(false);
-  const [position, setPostion] = useState(0);
+  const [videoInfo, setVideoInfo] = useState(null);
+
+  useEffect(() => {
+    const unlisten = listen('video-update', (event) => {
+      try {
+        const data = JSON.parse(event.payload);
+        setVideoInfo(data);
+      } catch (e) {
+        console.error('Failed to parse video info', e);
+      }
+    });
+
+    return () => unlisten.then((f) => f());
+  }, []);
 
   const startTimer = () => {
     if (seconds > 0) setIsRunning(true);
@@ -15,6 +29,8 @@ export default function App() {
     console.log(browser);
     const tabs = await invoke('get_browser_tabs', { browser });
     console.log(tabs);
+    const infos = await invoke('get_latest_video');
+    console.log(infos);
   };
 
   useEffect(() => {
