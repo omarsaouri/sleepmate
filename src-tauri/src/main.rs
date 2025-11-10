@@ -1,15 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::Builder; 
-use std::process::Command;
+use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use serde::{Serialize, Deserialize};
-use once_cell::sync::Lazy;
+use std::process::Command;
 use std::sync::Mutex;
+use tauri::Builder;
 
 static USED_BROWSER: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
-
 
 #[tauri::command]
 fn sleep_mac() -> Result<String, String> {
@@ -25,22 +24,6 @@ fn sleep_mac() -> Result<String, String> {
         Err(format!("Command failed with status: {}", status))
     }
 }
-
-/* osascript -e 'tell application "System Events"
-    set browserApps to {"Google Chrome", "Safari", "Mozilla Firefox", "Microsoft Edge", "Opera", "Brave Browser", "Vivaldi", "Internet Explorer", "Tor Browser", "Chromium"}
-    set runningBrowsers to {}
-    repeat with b in browserApps
-        if (name of processes) contains b then
-            set end of runningBrowsers to b
-        end if
-    end repeat
-    set outputText to ""
-    repeat with r in runningBrowsers
-        set outputText to outputText & r & linefeed
-    end repeat
-    return outputText
-end tell'
- */
 
 #[tauri::command]
 fn get_used_browser() -> Option<String> {
@@ -77,6 +60,37 @@ fn get_used_browser() -> Option<String> {
 }
 
 #[tauri::command]
+fn get_browser_tabs(browser: String) -> Result<Vec<String>, String> {
+    let script = format!(
+        "tell application \"{browser}\"
+            set output to \"\"
+            repeat with w in windows
+                repeat with t in tabs of w
+                    set output to output & (URL of t) & linefeed
+                end repeat
+            end repeat
+        end tell
+        return output"
+    );
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("Failed to run osascript: {e}"))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+
+    let result = String::from_utf8_lossy(&output.stdout);
+    let urls: Vec<String> =
+        result.lines().filter(|line| !line.trim().is_empty()).map(|s| s.to_string()).collect();
+
+    Ok(urls)
+}
+
+#[tauri::command]
 fn get_current_youtube_url() -> Option<String> {
     // Try Safari first
     if let Ok(safari_output) = Command::new("osascript")
@@ -104,8 +118,6 @@ fn get_current_youtube_url() -> Option<String> {
 
     None
 }
-
-
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WatchData {
@@ -135,7 +147,6 @@ impl WatchData {
     }
 }
 
-
 #[tauri::command]
 fn get_watch_position(url: String) -> Option<f64> {
     let data = WatchData::load();
@@ -145,18 +156,19 @@ fn get_watch_position(url: String) -> Option<f64> {
 #[tauri::command]
 fn update_watch_position(url: String, position: f64) {
     let mut data = WatchData::load();
-   data.update_position(url, position);
+    data.update_position(url, position);
 }
-
-
 
 fn main() {
     Builder::default()
-        .invoke_handler(tauri::generate_handler![sleep_mac,get_current_youtube_url,
-      get_watch_position,
-      update_watch_position,get_used_browser])
+        .invoke_handler(tauri::generate_handler![
+            sleep_mac,
+            get_current_youtube_url,
+            get_watch_position,
+            update_watch_position,
+            get_used_browser,
+            get_browser_tabs
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-

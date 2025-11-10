@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 
 export default function App() {
-  const [seconds, setSeconds] = useState("0");
+  const [seconds, setSeconds] = useState('0');
   const [isRunning, setIsRunning] = useState(false);
   const [position, setPostion] = useState(0);
 
@@ -11,8 +11,10 @@ export default function App() {
   };
 
   const fetchCurrentVideo = async () => {
-    const browser = await invoke("get_used_browser");
+    const browser = await invoke('get_used_browser');
     console.log(browser);
+    const tabs = await invoke('get_browser_tabs', { browser });
+    console.log(tabs);
   };
 
   useEffect(() => {
@@ -23,7 +25,7 @@ export default function App() {
       }, 1000); // 1 second interval
     } else if (seconds === 0 && isRunning) {
       setIsRunning(false);
-      invoke("sleep_mac");
+      invoke('sleep_mac');
     }
 
     return () => clearInterval(interval);
@@ -32,9 +34,7 @@ export default function App() {
   return (
     <div className="bg-neutral-800 text-white flex flex-col items-center justify-center gap-2 h-screen">
       <h1 className="text-4xl text-amber-700 font-bold">Sleepmate 😴</h1>
-      <p className="text-md text-gray-300">
-        Save your battery and what you were watching!
-      </p>
+      <p className="text-md text-gray-300">Save your battery and what you were watching!</p>
       <div className="flex flex-col gap-3 ">
         <div className="flex gap-3 items-center">
           <input
@@ -43,10 +43,11 @@ export default function App() {
             name="time"
             value={seconds}
             min="0"
+            readOnly={isRunning}
             onChange={(e) => {
               let value = e.target.value;
               if (value.length > 1) {
-                value = value.replace(/^0+/, "");
+                value = value.replace(/^0+/, '');
               }
               setSeconds(value);
             }}
