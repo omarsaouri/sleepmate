@@ -20,7 +20,7 @@ fn get_latest_video(info: State<VideoInfo>) -> Option<String> {
 
 fn main() {
     // Shared state
-    let video_info = VideoInfo { data: Arc::new(Mutex::new(None)) };
+    let video_info: VideoInfo = VideoInfo { data: Arc::new(Mutex::new(None)) };
 
     // Clone for WebSocket thread
     let ws_info = video_info.clone();
@@ -56,12 +56,7 @@ fn main() {
 
     Builder::default()
         .manage(video_info.clone()) // register state
-        .invoke_handler(tauri::generate_handler![
-            sleep_mac,
-            get_used_browser,
-            get_latest_video,
-            get_browser_tabs
-        ])
+        .invoke_handler(tauri::generate_handler![sleep_mac, get_latest_video,])
         .setup(move |app| {
             // Clone the app handle for use in the thread
             let app_handle = app.handle().clone();

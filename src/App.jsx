@@ -1,85 +1,68 @@
-import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { useState } from 'react';
+import { useVideoInfo } from './hooks/useVideoInfo';
+import { useCountdown } from './hooks/useCountdown';
 
 export default function App() {
-  const [seconds, setSeconds] = useState('0');
-  const [isRunning, setIsRunning] = useState(false);
-  const [videoInfo, setVideoInfo] = useState(null);
+  const { videoInfo, error } = useVideoInfo();
+  const [inputValue, setInputValue] = useState(10); // input value in minutes
+  const { seconds, isRunning, start, pause, reset } = useCountdown(inputValue);
 
-  useEffect(() => {
-    const unlisten = listen('video-update', (event) => {
-      try {
-        const data = JSON.parse(event.payload);
-        setVideoInfo(data);
-      } catch (e) {
-        console.error('Failed to parse video info', e);
-      }
-    });
-
-    return () => unlisten.then((f) => f());
-  }, []);
-
-  const startTimer = () => {
-    if (seconds > 0) setIsRunning(true);
+  const handleInputChange = (e) => {
+    let value = e.target.value.replace(/^0+/, '');
+    setInputValue(Number(value));
   };
 
-  const fetchCurrentVideo = async () => {
-    const browser = await invoke('get_used_browser');
-    console.log(browser);
-    const tabs = await invoke('get_browser_tabs', { browser });
-    console.log(tabs);
-    const infos = await invoke('get_latest_video');
-    console.log(infos);
+  const handleStart = () => {
+    reset(inputValue); // set countdown to inputValue
+    start();
   };
-
-  useEffect(() => {
-    let interval;
-    if (isRunning && seconds > 0) {
-      interval = setInterval(() => {
-        setSeconds((prev) => prev - 1);
-      }, 1000); // 1 second interval
-    } else if (seconds === 0 && isRunning) {
-      setIsRunning(false);
-      invoke('sleep_mac');
-    }
-
-    return () => clearInterval(interval);
-  }, [isRunning, seconds]);
 
   return (
-    <div className="bg-neutral-800 text-white flex flex-col items-center justify-center gap-2 h-screen">
+    <div className="bg-neutral-800 text-white flex flex-col items-center justify-center gap-4 h-screen">
       <h1 className="text-4xl text-amber-700 font-bold">Sleepmate 😴</h1>
       <p className="text-md text-gray-300">Save your battery and what you were watching!</p>
-      <div className="flex flex-col gap-3 ">
+
+      <div className="flex flex-col gap-3">
         <div className="flex gap-3 items-center">
           <input
-            className="bg-gray-200 rounded-md text-black p-1.5 w-20"
             type="number"
-            name="time"
-            value={seconds}
+            className="bg-gray-200 rounded-md text-black p-1.5 w-20"
+            value={inputValue}
             min="0"
             readOnly={isRunning}
-            onChange={(e) => {
-              let value = e.target.value;
-              if (value.length > 1) {
-                value = value.replace(/^0+/, '');
-              }
-              setSeconds(value);
-            }}
+            onChange={handleInputChange}
           />
-          <p className="font-semibold">minutes</p>
+          <span className="font-semibold">minutes</span>
         </div>
+
         <button
-          onClick={startTimer}
-          disabled={isRunning || seconds === 0}
-          className="p-1.5 bg-amber-500 text-black rounded-md hover:bg-amber-700 hover:text-white transition-all shadow-md"
+          onClick={handleStart}
+          disabled={isRunning || inputValue === 0}
+          className="p-2 bg-amber-500 text-black rounded-md hover:bg-amber-700 hover:text-white transition-all shadow-md"
         >
-          Start Sleeping
+          {isRunning ? 'Running...' : 'Start Sleeping'}
         </button>
+
+        {isRunning && <p className="text-gray-300">Time remaining: {seconds} second(s)</p>}
+
+        <div className="flex gap-2">
+          <button
+            onClick={pause}
+            disabled={!isRunning}
+            className="p-2 bg-gray-600 rounded-md hover:bg-gray-700"
+          >
+            Pause
+          </button>
+          <button
+            onClick={() => reset(inputValue)}
+            className="p-2 bg-gray-600 rounded-md hover:bg-gray-700"
+          >
+            Reset
+          </button>
+        </div>
       </div>
-      {isRunning && <p>Time remaining: {seconds} second(s)</p>}
-      <button onClick={fetchCurrentVideo}>detect</button>
+
+      {error && <p className="text-red-500">{error}</p>}
     </div>
   );
 }
