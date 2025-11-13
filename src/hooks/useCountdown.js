@@ -15,6 +15,10 @@ export function useCountdown(initialSeconds = 0) {
     setIsRunning(false);
   }, []);
 
+  const toggle = useCallback(() => {
+    setIsRunning((prev) => !prev);
+  }, []);
+
   // Reset the timer
   const reset = useCallback(
     (newSeconds = initialSeconds) => {
@@ -23,6 +27,14 @@ export function useCountdown(initialSeconds = 0) {
     },
     [initialSeconds]
   );
+
+  const sleepMac = async () => {
+    try {
+      await invoke('sleep_mac');
+    } catch (error) {
+      console.log('Error encountered while trying to sleep the mac', error);
+    }
+  };
 
   useEffect(() => {
     if (!isRunning || seconds <= 0) return;
@@ -38,9 +50,9 @@ export function useCountdown(initialSeconds = 0) {
   useEffect(() => {
     if (seconds === 0 && isRunning) {
       setIsRunning(false);
-      console.log('sleep');
+      sleepMac();
     }
   }, [seconds, isRunning]);
 
-  return { seconds, isRunning, start, pause, reset };
+  return { seconds, isRunning, start, pause, reset, toggle };
 }
