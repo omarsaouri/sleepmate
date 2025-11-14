@@ -5,16 +5,12 @@ import { useCountdown } from './hooks/useCountdown';
 export default function App() {
   const { videoInfo, error } = useVideoInfo();
   const [inputValue, setInputValue] = useState(10);
-  const { seconds, isRunning, toggle, pause, start, reset } = useCountdown(inputValue);
+  const { minutes, seconds, isRunning, toggle, pause, start, reset } = useCountdown(inputValue);
 
   const handleInputChange = (e) => {
     let value = e.target.value.replace(/^0+/, '');
     setInputValue(Number(value));
-  };
-
-  const handleStart = () => {
-    reset(inputValue);
-    start();
+    console.log(inputValue);
   };
 
   useEffect(() => {
@@ -30,7 +26,7 @@ export default function App() {
         <div className="flex flex-col gap-3 items-center">
           {isRunning && (
             <p>
-              You are watching <a href={videoInfo.url}>{videoInfo.title}</a>
+              You are watching <a href={videoInfo?.url}>{videoInfo?.title}</a>
             </p>
           )}
           {!isRunning && (
@@ -39,7 +35,8 @@ export default function App() {
           <div className="flex items-center gap-4">
             {isRunning ? (
               <p className="text-copy-lighter">
-                Time remaining before mac goes to sleep: {seconds} second(s)
+                Time remaining before mac goes to sleep: {minutes}:
+                {String(seconds).padStart(2, '0')}
               </p>
             ) : (
               <>
